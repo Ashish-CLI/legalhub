@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, FormEvent, ChangeEvent } from 'react';
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import { secureJsonPost, getCsrfToken } from '@/lib/csrf-client';
 
 interface FormFields {
   email: string;
@@ -19,6 +20,9 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  // Pre-fetch CSRF token on mount
+  useEffect(() => { getCsrfToken(); }, []);
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
@@ -36,14 +40,14 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email.trim(), password: formData.password }) });
+      const res = await secureJsonPost('/api/auth/login', { email: formData.email.trim(), password: formData.password });
       const data = await res.json();
       if (!res.ok) {
         if (data.details) { const fe: FieldErrors = {}; for (const [k, v] of Object.entries(data.details)) fe[k] = (v as string[])[0]; setErrors(fe); }
         else setMessage(data.error || 'Login failed');
         return;
       }
-      localStorage.setItem('token', data.token);
+      // Token is set as HttpOnly cookie by the server — no localStorage needed
       localStorage.setItem('user', JSON.stringify(data.user));
       setMessage('Login successful! Redirecting...');
       setTimeout(() => { window.location.href = '/'; }, 1000);

@@ -85,13 +85,13 @@ export async function POST(req: NextRequest) {
     try {
       await sendOtp({ to: email, otp, purpose: 'registration' });
     } catch (err) {
-      console.error('Email sending failed:', err);
-      if (process.env.NODE_ENV !== 'development') {
-        return NextResponse.json(
-          { error: 'Failed to send OTP email. Please try again.' },
-          { status: 500 }
-        );
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Email sending failed:', err);
       }
+      return NextResponse.json(
+        { error: 'Failed to send OTP email. Please try again.' },
+        { status: 500 }
+      );
     }
 
     if (process.env.NODE_ENV === 'development') {
@@ -102,13 +102,14 @@ export async function POST(req: NextRequest) {
       {
         message: 'OTP sent to your email.',
         expiresIn: '5 minutes',
-        ...(process.env.NODE_ENV === 'development' && { otp }),
       },
       { status: 200 }
     );
 
   } catch (error: unknown) {
-    console.error('Send OTP Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Send OTP Error:', error);
+    }
     return NextResponse.json(
       { error: 'An internal server error occurred.' },
       { status: 500 }

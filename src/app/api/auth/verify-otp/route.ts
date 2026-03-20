@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
     );
 
   } catch (error: unknown) {
-    console.error('Verify OTP Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Verify OTP Error:', error);
+    }
     return NextResponse.json(
       { error: 'An internal server error occurred.' },
       { status: 500 }

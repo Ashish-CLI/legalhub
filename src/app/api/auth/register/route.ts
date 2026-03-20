@@ -5,26 +5,66 @@ import User from '@/models/User';
 import Otp from '@/models/Otp';
 import cloudinary from '@/lib/cloudinary';
 
+const MAX_REQUEST_SIZE = 12 * 1024 * 1024;
+
 const schema = z.object({
   fullName: z.string().min(2, 'Full name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
   phoneNumber: z.string().regex(/^\+91[6-9]\d{9}$/, 'Must be a valid Indian phone number starting with +91'),
   address: z.string().min(10, 'Address must be at least 10 characters'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one digit')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
   role: z.enum(['client', 'lawyer', 'judge', 'admin']),
 });
+
+function validateFileMagicBytes(buffer: Buffer): { valid: boolean; detectedType: string } {
+  // PDF:
+  if (buffer.length >= 4 &&
+    buffer[0] === 0x25 && buffer[1] === 0x50 &&
+    buffer[2] === 0x44 && buffer[3] === 0x46) {
+    return { valid: true, detectedType: 'application/pdf' };
+  }
+
+  // JPEG:
+  if (buffer.length >= 3 &&
+    buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return { valid: true, detectedType: 'image/jpeg' };
+  }
+
+  return { valid: false, detectedType: 'unknown' };
+}
+
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[/\\:*?"<>|]/g, '_') 
+    .replace(/\.\./g, '_')         
+    .replace(/[^\w.\-]/g, '_')     
+    .slice(0, 100);                
+}
 
 async function uploadFile(file: File, folder: string): Promise<string> {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
+
+  const { valid } = validateFileMagicBytes(buffer);
+  if (!valid) {
+    throw new Error('File content does not match an allowed type (PDF or JPEG).');
+  }
+
+  const safeName = sanitizeFilename(file.name);
 
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream(
       {
         folder: `legalhub/${folder}`,
         resource_type: 'auto',
-        use_filename: true,
-        unique_filename: true
+        public_id: safeName.replace(/\.[^.]+$/, ''),
+        unique_filename: true,
+        overwrite: false,
       },
       (error, result) => {
         if (error) {
@@ -41,6 +81,14 @@ async function uploadFile(file: File, folder: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
+    const contentLength = parseInt(req.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_REQUEST_SIZE) {
+      return NextResponse.json(
+        { error: 'Request too large. Maximum total size is 12MB.' },
+        { status: 413 }
+      );
+    }
+
     await dbConnect();
 
     const formData = await req.formData();
@@ -100,12 +148,12 @@ export async function POST(req: NextRequest) {
     }
 
     const maxSize = 5 * 1024 * 1024;
-    const allowedTypes = ['application/pdf', 'image/jpeg'];
+    const allowedMimeTypes = ['application/pdf', 'image/jpeg'];
 
     if (idDocument.size > maxSize) {
       return NextResponse.json({ error: 'ID Document exceeds the 5MB limit.' }, { status: 400 });
     }
-    if (!allowedTypes.includes(idDocument.type)) {
+    if (!allowedMimeTypes.includes(idDocument.type)) {
       return NextResponse.json({ error: 'ID Document must be a JPG or PDF.' }, { status: 400 });
     }
 
@@ -113,15 +161,27 @@ export async function POST(req: NextRequest) {
       if (professionalDocument.size > maxSize) {
         return NextResponse.json({ error: 'Professional Document exceeds the 5MB limit.' }, { status: 400 });
       }
-      if (!allowedTypes.includes(professionalDocument.type)) {
+      if (!allowedMimeTypes.includes(professionalDocument.type)) {
         return NextResponse.json({ error: 'Professional Document must be a JPG or PDF.' }, { status: 400 });
       }
     }
 
-    const idUrl = await uploadFile(idDocument, 'id-documents');
-    let profUrl = undefined;
+    let idUrl: string;
+    try {
+      idUrl = await uploadFile(idDocument, 'id-documents');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      return NextResponse.json({ error: `ID Document upload failed: ${msg}` }, { status: 400 });
+    }
+
+    let profUrl: string | undefined = undefined;
     if (professionalDocument) {
-      profUrl = await uploadFile(professionalDocument, 'professional-documents');
+      try {
+        profUrl = await uploadFile(professionalDocument, 'professional-documents');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        return NextResponse.json({ error: `Professional Document upload failed: ${msg}` }, { status: 400 });
+      }
     }
 
     const user = new User({
@@ -153,7 +213,9 @@ export async function POST(req: NextRequest) {
     );
 
   } catch (error: unknown) {
-    console.error('Registration API Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Registration API Error:', error);
+    }
     return NextResponse.json(
       { error: 'An internal server error occurred.' },
       { status: 500 }

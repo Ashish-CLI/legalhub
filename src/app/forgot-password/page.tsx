@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, FormEvent, ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import { secureJsonPost, getCsrfToken } from '@/lib/csrf-client';
 
 type Step = 'email' | 'reset';
 interface FormFields { email: string; otp: string; newPassword: string; confirmPassword: string; }
@@ -18,6 +19,8 @@ export default function ForgotPasswordPage() {
   const [otpTimer, setOtpTimer] = useState(0);
   const [success, setSuccess] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => { getCsrfToken(); }, []);
 
   function startTimer() {
     setOtpTimer(300);
@@ -40,7 +43,7 @@ export default function ForgotPasswordPage() {
     if (!/^\S+@\S+\.\S+$/.test(email)) { setErrors({ email: 'Enter a valid email' }); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const res = await secureJsonPost('/api/auth/forgot-password', { email });
       const data = await res.json();
       if (!res.ok) { setErrors({ email: data.error || 'Failed' }); return; }
       setMessage('If an account exists, an OTP has been sent.'); setStep('reset'); startTimer();
@@ -56,7 +59,7 @@ export default function ForgotPasswordPage() {
     if (Object.keys(ne).length > 0) { setErrors(ne); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email, otp: formData.otp, newPassword: formData.newPassword }) });
+      const res = await secureJsonPost('/api/auth/reset-password', { email: formData.email, otp: formData.otp, newPassword: formData.newPassword });
       const data = await res.json();
       if (!res.ok) { if (data.error?.toLowerCase().includes('otp')) setErrors({ otp: data.error }); else setMessage(data.error || 'Failed'); return; }
       setSuccess(true); if (timerRef.current) clearInterval(timerRef.current);
@@ -66,7 +69,7 @@ export default function ForgotPasswordPage() {
   async function handleResend() {
     setErrors({}); setMessage(''); setLoading(true);
     try {
-      const res = await fetch('/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email }) });
+      const res = await secureJsonPost('/api/auth/forgot-password', { email: formData.email });
       const data = await res.json();
       if (!res.ok) { setErrors({ otp: data.error || 'Failed' }); return; }
       setMessage('OTP resent!'); setFormData((p) => ({ ...p, otp: '' })); startTimer();

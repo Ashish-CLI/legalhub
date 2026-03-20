@@ -10,7 +10,12 @@ const MAX_ATTEMPTS = 5;
 const schema = z.object({
   email: z.string().email('Must be a valid email address'),
   otp: z.string().length(6, 'OTP must be exactly 6 digits').regex(/^\d{6}$/, 'OTP must be numeric'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  newPassword: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one digit')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
 });
 
 export async function POST(req: NextRequest) {
@@ -81,7 +86,9 @@ export async function POST(req: NextRequest) {
     );
 
   } catch (error: unknown) {
-    console.error('Reset Password Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Reset Password Error:', error);
+    }
     return NextResponse.json(
       { error: 'An internal server error occurred.' },
       { status: 500 }

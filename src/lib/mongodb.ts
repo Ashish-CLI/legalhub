@@ -6,6 +6,11 @@ if (!MONGODB_URI) {
   throw new Error('Please define the MONGO_URI environment variable inside .env.local');
 }
 
+// Validate MongoDB URI format
+if (!/^mongodb(\+srv)?:\/\/.+/.test(MONGODB_URI)) {
+  throw new Error('MONGO_URI must be a valid MongoDB connection string (mongodb:// or mongodb+srv://)');
+}
+
 interface DbCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;

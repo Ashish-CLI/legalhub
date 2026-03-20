@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, FormEvent, ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import { secureJsonPost, secureFormPost, getCsrfToken } from '@/lib/csrf-client';
 
 type Role = 'client' | 'lawyer' | 'judge' | 'admin';
 type Step = 'email' | 'otp' | 'details';
@@ -34,6 +35,8 @@ export default function RegisterPage() {
   const profDocRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useEffect(() => { getCsrfToken(); }, []);
+
   function startTimer() {
     setOtpTimer(300);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -59,7 +62,7 @@ export default function RegisterPage() {
     if (!/^\S+@\S+\.\S+$/.test(email)) { setErrors({ email: 'Enter a valid email' }); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const res = await secureJsonPost('/api/auth/send-otp', { email });
       const data = await res.json();
       if (!res.ok) { setErrors({ email: data.error || 'Failed' }); return; }
       setMessage('OTP sent!'); setStep('otp'); startTimer();
@@ -71,7 +74,7 @@ export default function RegisterPage() {
     if (!formData.otp || formData.otp.length !== 6) { setErrors({ otp: 'Enter 6-digit OTP' }); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/verify-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email, otp: formData.otp }) });
+      const res = await secureJsonPost('/api/auth/verify-otp', { email: formData.email, otp: formData.otp });
       const data = await res.json();
       if (!res.ok) { setErrors({ otp: data.error || 'Invalid OTP' }); return; }
       setMessage('Email verified!'); setStep('details'); if (timerRef.current) clearInterval(timerRef.current);
@@ -100,7 +103,7 @@ export default function RegisterPage() {
       body.append('password', formData.password); body.append('role', formData.role);
       if (formData.idDocument) body.append('idDocument', formData.idDocument);
       if (formData.professionalDocument) body.append('professionalDocument', formData.professionalDocument);
-      const res = await fetch('/api/auth/register', { method: 'POST', body });
+      const res = await secureFormPost('/api/auth/register', body);
       const data = await res.json();
       if (!res.ok) {
         if (data.details) { const fe: FieldErrors = {}; for (const [k, v] of Object.entries(data.details)) fe[k] = (v as string[])[0]; setErrors(fe); }
@@ -114,7 +117,7 @@ export default function RegisterPage() {
   async function handleResend() {
     setErrors({}); setMessage(''); setLoading(true);
     try {
-      const res = await fetch('/api/auth/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: formData.email }) });
+      const res = await secureJsonPost('/api/auth/send-otp', { email: formData.email });
       const data = await res.json();
       if (!res.ok) { setErrors({ otp: data.error || 'Failed' }); return; }
       setMessage('OTP resent!'); setFormData((p) => ({ ...p, otp: '' })); startTimer();
