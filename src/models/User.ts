@@ -87,7 +87,7 @@ UserSchema.pre('save', async function () {
     }
   }
 
-  if (this.isNew) {
+  if (!this.userId) {
     const prefixes: Record<string, string> = {
       client: 'C',
       lawyer: 'L',

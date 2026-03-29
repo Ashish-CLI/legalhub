@@ -4,6 +4,7 @@ import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { secureJsonPost, getCsrfToken } from '@/lib/csrf-client';
 
 interface FormFields {
@@ -16,12 +17,12 @@ interface FieldErrors {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
   const [formData, setFormData] = useState<FormFields>({ email: '', password: '' });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Pre-fetch CSRF token on mount
   useEffect(() => { getCsrfToken(); }, []);
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
@@ -47,10 +48,9 @@ export default function LoginPage() {
         else setMessage(data.error || 'Login failed');
         return;
       }
-      // Token is set as HttpOnly cookie by the server — no localStorage needed
       localStorage.setItem('user', JSON.stringify(data.user));
       setMessage('Login successful! Redirecting...');
-      setTimeout(() => { window.location.href = '/'; }, 1000);
+      setTimeout(() => { window.location.href = '/dashboard'; }, 1000);
     } catch { setMessage('Network error. Please try again.'); } finally { setLoading(false); }
   }
 
@@ -65,12 +65,11 @@ export default function LoginPage() {
     <div className="flex min-h-screen">
       {/* Left Panel — Login Form */}
       <div className="relative flex w-full flex-col items-center justify-center overflow-hidden bg-[#0a0e1a] px-4 py-8 lg:w-1/2">
-        {/* Background Glow Effects */}
+
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -left-32 -top-32 h-80 w-80 rounded-full bg-blue-600/15 blur-[100px]" />
           <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-indigo-600/15 blur-[100px]" />
         </div>
-        {/* Dot Grid Pattern */}
         <div className="pointer-events-none absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
 
         {/* Form Content */}
@@ -154,7 +153,7 @@ export default function LoginPage() {
         </motion.div>
       </div>
 
-      {/* Right Panel — Image + Hero Content */}
+      {/* Right Panel */}
       <div className="relative hidden items-center justify-center lg:flex lg:w-1/2">
         {/* Background Image */}
         <Image src="/register-pic.jpg" alt="Legal professionals" fill className="object-cover" priority />

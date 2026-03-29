@@ -4,12 +4,13 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
+import Counter from '@/models/Counter';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
 const MAX_FAILED_PER_EMAIL = 5;
 const MAX_FAILED_PER_IP = 20;
-const LOCKOUT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const LOCKOUT_WINDOW = 15 * 60 * 1000;
 
 const schema = z.object({
   email: z.string().email('Must be a valid email address'),
@@ -93,6 +94,28 @@ export async function POST(req: NextRequest) {
         { error: 'Invalid email or password.' },
         { status: 401 }
       );
+    }
+
+    // Ensure userId is set for existing users
+    if (!user.userId) {
+      const prefixes: Record<string, string> = {
+        client: 'C',
+        lawyer: 'L',
+        judge: 'J',
+        admin: 'A'
+      };
+      const prefix = prefixes[user.role] || 'U';
+
+      const counter = await Counter.findByIdAndUpdate(
+        { _id: prefix },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+      );
+
+      const num = counter.seq;
+      const seq = num.toString().padStart(4, '0');
+      user.userId = `${prefix}${seq}`;
+      await user.save();
     }
 
     const passwordOk = await bcrypt.compare(password, user.password);

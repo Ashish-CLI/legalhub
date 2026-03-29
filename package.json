@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "create-admin": "node scripts/create-admin.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.9.0",
+    "dotenv": "^17.3.1",
     "framer-motion": "^12.36.0",
     "jose": "^6.2.2",
     "jsonwebtoken": "^9.0.3",
@@ -32,6 +34,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }
