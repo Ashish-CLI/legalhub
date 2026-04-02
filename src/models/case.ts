@@ -1,63 +1,75 @@
-import mongoose,{Document,Schema,Model} from "mongoose";
+import mongoose,{Document,Model,Schema, Types} from "mongoose";
 
-export interface ICase extends Document{
-    caseId: string;
-    clientId: string;
-    lawyerId: string;
-    judgeId?: string;
-    vaultId: string;
-    caseFile: string;
-    caseStatus: 'pending' | 'active' | 'closed';
-    createdAt: Date;
-    updatedAt: Date;
+export interface ICase extends Document {
+    caseId: string ;
+    clientId: Types.ObjectId ;
+    lawyerId: Types.ObjectId ;
+    caseFile: string ;
+    judgeId?: Types.ObjectId ;
+    vaultId?: Types.ObjectId ;
+    status: 'pending' | 'active' | 'closed';
+    openDate: Date ;
+    closeDate?: Date ;
+    updatedDate: Date ;
+    acceptedByAdminId: Types.ObjectId ;
 }
 
-const CaseSchema: Schema<ICase> = new Schema ({
-    
-    caseId:{
+const CaseSchema: Schema<ICase> = new Schema({
+    caseId: {
         type: String,
-        unique: true
+        unique: true,
+        required: true,
+        index: true
     },
-
-    clientId:{
+    clientId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true
+    },
+    lawyerId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true
+    },
+    caseFile: {
         type: String,
         required: true
     },
-
-    lawyerId: {
-        type: String,
-        required: true,
-    },
-
     judgeId: {
-        type: String
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        index: true 
     },
-
     vaultId: {
-        type: String,
-        required: true,
-        minlength: 1
+        type: Schema.Types.ObjectId,
+        ref: 'Vault',
     },
-
-    caseFile: {
-        type: String,
-        required: true,
-        trim: true,
-        minlength: 1
+    status: {
+        type : String,
+        enum : ['pending', 'active' , 'closed'],
+        default : 'pending'
     },
-
-    caseStatus: {
-        type: String,
-        enum: ['pending', 'active', 'closed'],
-        default: 'pending'
+    openDate: {
+        type: Date,
+        default: Date.now
+    },
+    closeDate: {
+        type: Date,
+    },
+    updatedDate: {
+        type: Date,
+        default: Date.now
+    },
+    acceptedByAdminId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
     }
+},{timestamps: true} )
 
-},{timestamps: true});
 
-CaseSchema.index({ clientId: 1 });
-CaseSchema.index({ lawyerId: 1 });
-CaseSchema.index({ judgeId: 1 }, { sparse: true });
+const Case:  Model<ICase> = mongoose.model<ICase>('Case', CaseSchema);
 
-const Case: Model<ICase> = mongoose.model<ICase>('Case', CaseSchema);
-
-export default Case;
+export default Case ;

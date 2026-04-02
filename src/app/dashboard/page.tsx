@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import StatsCard from './components/StatsCard'
-import ActivityFeed from './components/ActivityFeed'
+import LawyerSearch from './components/LawyerSearch'
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null)
@@ -82,9 +82,9 @@ export default function DashboardPage() {
             />
           </div>
           
-          {/* Activity Feed */}
+          {/* Lawyer Search */}
           <div className="bg-white p-4 rounded-lg shadow md:p-6">
-            
+            <LawyerSearch />
           </div>
         </main>
       </div>

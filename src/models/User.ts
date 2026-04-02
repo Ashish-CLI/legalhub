@@ -12,6 +12,7 @@ export interface IUser extends Document {
   role: 'client' | 'lawyer' | 'judge' | 'admin';
   idDocument: string;
   professionalDocument?: string;
+  profileImage?: string;
   verificationStatus: 'pending' | 'accepted' | 'rejected';
   caseCount?: number;
   createdAt: Date;
@@ -75,6 +76,11 @@ const UserSchema: Schema<IUser> = new Schema({
     type: Number,
     min: 0,
     max: 3
+  },
+  profileImage: {
+    type: String,
+    required: false,
+    default: '/default.jpg'
   }
 }, { timestamps: true });
 
