@@ -47,6 +47,8 @@ const ChatApp = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [typingTimeOut, setTypingTimeOut] = useState<NodeJS.Timeout | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
+  const [showAllUsers, setShowAllUsers] = useState(false);
+  const [chats, setChats] = useState<any[]>([]);
 
   const socket: any = {
     on: (event: string, callback: any) => {},
@@ -80,6 +82,12 @@ const ChatApp = () => {
   useEffect(() => {
     console.log("Chat page state:", { isAuth, loading, selectedUser, chatUser, creatingChat });
   }, [isAuth, loading, selectedUser, chatUser, creatingChat]);
+
+  useEffect(() => {
+    if (isAuth && !loading) {
+      loadChats();
+    }
+  }, [isAuth, loading]);
 
   const createChatWithLawyer = async (lawyer: User) => {
     if (!loggedInUser) return;
@@ -118,6 +126,19 @@ const ChatApp = () => {
     } catch (e) {
       console.error(e);
       toast.error("Could not fetch chat messages.");
+    }
+  };
+
+  const loadChats = async () => {
+    if (!loggedInUser) return;
+    try {
+      const resp = await fetch("/api/chats");
+      if (!resp.ok) throw new Error("Failed to load chats");
+      const { chats } = await resp.json();
+      setChats(chats);
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not fetch chats.");
     }
   };
 
@@ -211,17 +232,17 @@ const ChatApp = () => {
         sidebarOpen={siderbarOpen}
         setSidebarOpen={setSiderbarOpen}
         showAllUsers={false}
-        setShowAllUsers={() => {}}
+        setShowAllUsers={setShowAllUsers}
         users={[]}
         loggedInUser={loggedInUser || { _id: "", name: "User" }}
-        chats={[]}
+        chats={chats}
         selectedUser={selectedUser}
         setSelectedUser={setSelectedUser}
         handleLogout={() => {
           localStorage.removeItem('user');
           router.push("/login");
         }}
-        createChat={() => {}}
+        createChat={createChatWithLawyer}
         onlineUsers={onlineUsers}
       />
       <div className="flex-1 flex flex-col justify-between p-4 backdrop-blur-xl bg-white/5 border-1 border-white/10">

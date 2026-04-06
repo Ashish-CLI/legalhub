@@ -9,24 +9,23 @@ export async function fetchUserById(
   userId: string
 ): Promise<UserData | null> {
   try {
-    const res = await fetch(
-      `${process.env.USER_SERVICE}/api/v1/user/${userId}`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-key": process.env.INTERNAL_API_KEY || "",
-        },
-        next: { revalidate: 60 },
-      }
-    );
-
-    if (!res.ok) {
-      console.error(`User service returned ${res.status} for userId: ${userId}`);
+    // Dynamically import User model to avoid SSR issues
+    const { default: User } = await import('@/models/User');
+    const { default: dbConnect } = await import('@/lib/mongodb');
+    await dbConnect();
+    
+    const user = await User.findOne({ userId: userId });
+    if (!user) {
+      console.error(`User not found for userId: ${userId}`);
       return null;
     }
 
-    return await res.json();
+    return {
+      _id: user.userId,
+      name: user.fullName,
+      email: user.email,
+      avatar: user.profileImage,
+    };
   } catch (error) {
     console.error(`fetchUserById failed for userId: ${userId}`, error);
     return null;
@@ -36,17 +35,27 @@ export async function fetchUserById(
 export async function fetchUsersByIds(
   userIds: string[]
 ): Promise<Map<string, UserData>> {
-  const results = await Promise.allSettled(
-    userIds.map((id) => fetchUserById(id))
-  );
+  try {
+    // Dynamically import User model to avoid SSR issues
+    const { default: User } = await import('@/models/User');
+    const { default: dbConnect } = await import('@/lib/mongodb');
+    await dbConnect();
+    
+    const users = await User.find({ userId: { $in: userIds } });
+    
+    const userMap = new Map<string, UserData>();
+    users.forEach((user: any) => {
+      userMap.set(user.userId, {
+        _id: user.userId,
+        name: user.fullName,
+        email: user.email,
+        avatar: user.profileImage,
+      });
+    });
 
-  const userMap = new Map<string, UserData>();
-
-  results.forEach((result, index) => {
-    if (result.status === "fulfilled" && result.value) {
-      userMap.set(userIds[index], result.value);
-    }
-  });
-
-  return userMap;
+    return userMap;
+  } catch (error) {
+    console.error(`fetchUsersByIds failed`, error);
+    return new Map<string, UserData>();
+  }
 }

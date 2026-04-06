@@ -84,6 +84,12 @@ export async function GET(req: NextRequest) {
         const userData = otherUserId
           ? userMap.get(otherUserId) ?? { _id: otherUserId, name: "Unknown User" }
           : { _id: otherUserId, name: "Unknown User" };
+        
+        // Debug logging
+        console.log('otherUserId:', otherUserId);
+        console.log('userMap size:', userMap.size);
+        console.log('userMap keys:', Array.from(userMap.keys()));
+        console.log('userData:', userData);
 
         return {
           user: userData,
