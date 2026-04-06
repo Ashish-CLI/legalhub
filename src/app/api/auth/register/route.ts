@@ -40,17 +40,17 @@ function validateFileMagicBytes(buffer: Buffer): { valid: boolean; detectedType:
 
 function sanitizeFilename(name: string): string {
   return name
-    .replace(/[/\\:*?"<>|]/g, '_') 
-    .replace(/\.\./g, '_')         
-    .replace(/[^\w.\-]/g, '_')     
-    .slice(0, 100);                
+    .replace(/[/\\:*?"<>|]/g, '_')
+    .replace(/\.\./g, '_')
+    .replace(/[^\w.\-]/g, '_')
+    .slice(0, 100);
 }
 
-async function uploadFile(file: File, folder: string): Promise<string> {
+async function uploadFile(file: File, folder: string): Promise<{url: string, type: string}> {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  const { valid } = validateFileMagicBytes(buffer);
+  const { valid, detectedType } = validateFileMagicBytes(buffer);
   if (!valid) {
     throw new Error('File content does not match an allowed type (PDF or JPEG).');
   }
@@ -70,7 +70,7 @@ async function uploadFile(file: File, folder: string): Promise<string> {
         if (error) {
           reject(error);
         } else if (result) {
-          resolve(result.secure_url);
+          resolve({url: result.secure_url, type: detectedType});
         } else {
           reject(new Error('Upload failed'));
         }
@@ -166,18 +166,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let idUrl: string;
+    let idResult: {url: string, type: string};
     try {
-      idUrl = await uploadFile(idDocument, 'id-documents');
+      idResult = await uploadFile(idDocument, 'id-documents');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
       return NextResponse.json({ error: `ID Document upload failed: ${msg}` }, { status: 400 });
     }
 
-    let profUrl: string | undefined = undefined;
+    let profResult: {url: string, type: string} | undefined = undefined;
     if (professionalDocument) {
       try {
-        profUrl = await uploadFile(professionalDocument, 'professional-documents');
+        profResult = await uploadFile(professionalDocument, 'professional-documents');
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Upload failed';
         return NextResponse.json({ error: `Professional Document upload failed: ${msg}` }, { status: 400 });
@@ -191,8 +191,10 @@ export async function POST(req: NextRequest) {
       address,
       password,
       role,
-      idDocument: idUrl,
-      professionalDocument: profUrl,
+      idDocument: idResult.url,
+      idDocumentType: idResult.type,
+      professionalDocument: profResult?.url,
+      professionalDocumentType: profResult?.type,
     });
 
     await user.save();

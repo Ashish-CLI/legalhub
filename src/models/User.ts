@@ -11,7 +11,9 @@ export interface IUser extends Document {
   address: string;
   role: 'client' | 'lawyer' | 'judge' | 'admin';
   idDocument: string;
+  idDocumentType?: string;
   professionalDocument?: string;
+  professionalDocumentType?: string;
   profileImage?: string;
   verificationStatus: 'pending' | 'accepted' | 'rejected';
   caseCount?: number;
@@ -61,11 +63,19 @@ const UserSchema: Schema<IUser> = new Schema({
     type: String,
     required: true
   },
+  idDocumentType: {
+    type: String,
+    required: false
+  },
   professionalDocument: {
     type: String,
     required: function (this: IUser) {
       return ['lawyer', 'judge', 'admin'].includes(this.role);
     }
+  },
+  professionalDocumentType: {
+    type: String,
+    required: false
   },
   verificationStatus: {
     type: String,

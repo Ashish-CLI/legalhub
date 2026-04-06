@@ -12,6 +12,7 @@ const navigation = [
 const adminNavigation = [
   { name: 'Admin Panel', href: '/admin', icon: '⚙️' },
   { name: 'Users', href: '/admin/users', icon: '👥' },
+  { name: 'Verification Requests', href: '/admin/verification-requests', icon: '📋' },
 ]
 
 export default function Sidebar({ userRole }: { userRole: string }) {

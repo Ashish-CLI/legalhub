@@ -70,6 +70,6 @@ const CaseSchema: Schema<ICase> = new Schema({
 },{timestamps: true} )
 
 
-const Case:  Model<ICase> = mongoose.model<ICase>('Case', CaseSchema);
+const Case: Model<ICase> = mongoose.model<ICase>('Case', CaseSchema);
 
 export default Case ;
