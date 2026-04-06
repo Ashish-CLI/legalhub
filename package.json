@@ -16,13 +16,17 @@
     "dotenv": "^17.3.1",
     "framer-motion": "^12.36.0",
     "jose": "^6.2.2",
+    "js-cookie": "^3.0.5",
     "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.7.0",
     "mime-types": "^3.0.2",
+    "moment": "^2.30.1",
     "mongoose": "^9.2.4",
     "next": "16.1.6",
     "nodemailer": "^8.0.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-hot-toast": "^2.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

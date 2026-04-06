@@ -9,12 +9,18 @@ export async function getCsrfToken(): Promise<string> {
 
   fetchPromise = fetch('/api/auth/csrf-token', { credentials: 'same-origin' })
     .then(async (res) => {
+      if (!res.ok) {
+        console.error('Failed to fetch CSRF token:', res.status, res.statusText);
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
       const data = await res.json();
       cachedToken = data.csrfToken;
       fetchPromise = null;
+      console.log('CSRF token fetched and cached:', cachedToken);
       return cachedToken!;
     })
-    .catch(() => {
+    .catch((error) => {
+      console.error('Error fetching CSRF token:', error);
       fetchPromise = null;
       return '';
     });
@@ -24,9 +30,12 @@ export async function getCsrfToken(): Promise<string> {
 
 export async function secureFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getCsrfToken();
+  console.log('Using CSRF token:', token);
 
   const headers = new Headers(options.headers || {});
   headers.set('x-csrf-token', token);
+
+  console.log('Making secure fetch to:', url, 'with headers:', Object.fromEntries(headers.entries()));
 
   return fetch(url, {
     ...options,

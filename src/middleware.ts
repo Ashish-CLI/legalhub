@@ -6,6 +6,7 @@ const PROTECTED_ROUTES = [
   '/api/cases',
   '/api/users',
   '/api/admin',
+  '/api/chats',
 ];
 
 const PUBLIC_ROUTES = [
