@@ -5,6 +5,84 @@ import { connectDB } from "@/app/lib/db";
 import { Chat } from "@/models/Chat";
 import { Messages } from "@/models/Messages";
 import cloudinary from "@/lib/cloudinary";
+import mongoose from "mongoose";
+
+const MAX_CHAT_MEDIA_SIZE = 20 * 1024 * 1024;
+const MAX_CHAT_REQUEST_SIZE = 22 * 1024 * 1024;
+
+type ChatMediaType = "image" | "pdf" | "video" | "audio" | "file";
+type CloudinaryResourceType = "image" | "video" | "raw";
+
+function detectMediaType(buffer: Buffer): ChatMediaType | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image";
+  }
+
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "image";
+  }
+
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image";
+  }
+
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x25 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x44 &&
+    buffer[3] === 0x46
+  ) {
+    return "pdf";
+  }
+
+  if (buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp") {
+    return "video";
+  }
+
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WAVE"
+  ) {
+    return "audio";
+  }
+
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0x49 &&
+    buffer[1] === 0x44 &&
+    buffer[2] === 0x33
+  ) {
+    return "audio";
+  }
+
+  if (buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) {
+    return "audio";
+  }
+
+  return null;
+}
+
+function resourceTypeForMedia(type: ChatMediaType): CloudinaryResourceType {
+  if (type === "image") return "image";
+  if (type === "video" || type === "audio") return "video";
+  return "raw";
+}
 
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ chatId: string }> }) {
@@ -14,20 +92,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ chat
     if (!user) return ApiResponse.unauthorized();
 
     const { chatId } = await params;
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return ApiResponse.badRequest("Invalid chat id.");
+    }
     
     const chat = await Chat.findById(chatId);
     if (!chat) return ApiResponse.notFound("Chat");
 
-    if (!chat.users.some((id: any) => id.toString() === user.userId)) {
+    if (!chat.users.some((id: string) => id.toString() === user.userId)) {
       return ApiResponse.forbidden();
     }
 
-    // Fetch messages for this chat
-    const messages = await Messages.find({ chatId }).sort({ createdAt: -1 }).limit(50);
+    const messages = (await Messages.find({ chatId }).sort({ createdAt: -1 }).limit(50)).reverse();
 
     // Mark messages as seen if they belong to the other user
     const otherUserId = chat.users.find(
-      (id: any) => id.toString() !== user.userId
+      (id: string) => id.toString() !== user.userId
     );
 
     if (otherUserId) {
@@ -54,17 +134,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ chat
 // POST /api/chats/[chatId]/messages
 export async function POST(req: NextRequest, { params }: { params: Promise<{ chatId: string }> }) {
   try {
+    const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
+    if (contentLength > MAX_CHAT_REQUEST_SIZE) {
+      return ApiResponse.error("Request too large. Maximum chat media size is 20MB.", 413);
+    }
+
     await connectDB();
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized();
 
     const { chatId } = await params;
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return ApiResponse.badRequest("Invalid chat id.");
+    }
     
     // Find the chat and ensure the user is a participant
     const chat = await Chat.findById(chatId);
     if (!chat) return ApiResponse.notFound("Chat");
 
-    if (!chat.users.some((id: any) => id.toString() === user.userId)) {
+    if (!chat.users.some((id: string) => id.toString() === user.userId)) {
       return ApiResponse.forbidden();
     }
 
@@ -79,15 +167,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cha
 
     let media = null;
     if (file) {
+      if (file.size > MAX_CHAT_MEDIA_SIZE) {
+        return ApiResponse.badRequest("Chat media exceeds the 20MB limit.");
+      }
+
       // Upload file to Cloudinary
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
-      
-      // Determine resource type based on MIME type
-      let resourceType: "image" | "raw" = "raw";
-      if (file.type.startsWith("image/")) {
-        resourceType = "image";
+
+      const mediaType = detectMediaType(buffer);
+      if (!mediaType) {
+        return ApiResponse.badRequest("Unsupported or invalid media file. Upload a valid image, PDF, video, or audio file.");
       }
+      const resourceType = resourceTypeForMedia(mediaType);
       
       const base64 = buffer.toString("base64");
       const uploadResult = await cloudinary.uploader.upload(
@@ -98,21 +190,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cha
         }
       );
 
-      // Determine media type for our database
-      let mediaType: "image" | "pdf" | "video" | "audio" | "file" = "file";
-      if (file.type.startsWith("image/")) {
-        mediaType = "image";
-      } else if (file.type.includes("pdf")) {
-        mediaType = "pdf";
-      } else if (file.type.includes("video")) {
-        mediaType = "video";
-      } else if (file.type.includes("audio")) {
-        mediaType = "audio";
-      }
-
       media = {
         url: uploadResult.secure_url,
         publicId: uploadResult.public_id,
+        originalName: file.name,
         type: mediaType,
       };
     }

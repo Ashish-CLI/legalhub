@@ -6,20 +6,17 @@ export async function GET(req: NextRequest) {
   try {
     await dbConnect();
     
-    // Get query parameters for pagination
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const skip = (page - 1) * limit;
     
-    // Fetch users with pending verification status
     const users = await User.find({ verificationStatus: 'pending' })
       .select('userId fullName email role idDocument idDocumentType professionalDocument professionalDocumentType createdAt')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
       
-    // Get total count for pagination
     const total = await User.countDocuments({ verificationStatus: 'pending' });
     
     return NextResponse.json({

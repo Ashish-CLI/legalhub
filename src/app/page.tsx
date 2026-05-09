@@ -23,7 +23,7 @@ export default function Home() {
             LegalHub
           </h1>
           <p className="mt-4 text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
-            India's Digital Legal Platform - Connect with verified lawyers, manage cases digitally, and access justice from anywhere.
+            India&apos;s Digital Legal Platform - Connect with verified lawyers, manage cases digitally, and access justice from anywhere.
           </p>
         </div>
         

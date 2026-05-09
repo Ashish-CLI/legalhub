@@ -2,7 +2,7 @@
 import ChatSidebar from "@/app/chat/components/ChatSidebar";
 import Loading from "@/app/chat/components/Loading";
 import { useRouter, useSearchParams } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import ChatHeader from "@/app/chat/components/ChatHeader";
 import ChatMessages from "@/app/chat/components/ChatMessages";
@@ -17,9 +17,26 @@ export interface Message {
   media?: {
     url: string;
     publicId: string;
+    originalName?: string;
     type: "image" | "pdf" | "video" | "audio" | "file";
   };
-  messageType: "text" | "media";
+  caseRequest?: {
+    status: "pending" | "accepted" | "rejected" | "filed";
+    clientId: string;
+    lawyerId: string;
+    caseId?: string;
+    requestedAt?: string;
+    respondedAt?: string;
+    filedAt?: string;
+  };
+  vault?: {
+    added: boolean;
+    vaultId?: string;
+    caseId?: string;
+    addedAt?: string;
+    addedBy?: string;
+  };
+  messageType: "text" | "media" | "case_request";
   seen: boolean;
   seenAt?: string;
   createdAt: string;
@@ -28,9 +45,41 @@ export interface Message {
 export interface User {
   _id: string;
   name: string;
+  role?: string;
 }
 
-const ChatApp = () => {
+interface ChatListItem {
+  user: User;
+  chat: {
+    _id: string;
+    latestMessage?: {
+      text: string;
+      sender: string;
+    } | null;
+    unseenCount?: number;
+  };
+}
+
+interface VaultContext {
+  caseId: string;
+  title: string;
+  clientId: string;
+  lawyerId: string;
+  vaultId: string | null;
+}
+
+interface TypingPayload {
+  chatId: string;
+  userId: string;
+}
+
+interface ChatSocket {
+  on: (event: string, callback: (payload: Message | TypingPayload) => void) => void;
+  off: (event: string) => void;
+  emit: (event: string, data: TypingPayload) => void;
+}
+
+const ChatAppContent = () => {
   const [loading, setLoading] = useState(true);
   const [isAuth, setIsAuth] = useState(false);
   const [loggedInUser, setLoggedInUser] = useState<User | null>(null);
@@ -48,18 +97,19 @@ const ChatApp = () => {
   const [typingTimeOut, setTypingTimeOut] = useState<NodeJS.Timeout | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
   const [showAllUsers, setShowAllUsers] = useState(false);
-  const [chats, setChats] = useState<any[]>([]);
+  const [chats, setChats] = useState<ChatListItem[]>([]);
+  const [vaultContext, setVaultContext] = useState<VaultContext | null>(null);
 
-  const socket: any = {
-    on: (event: string, callback: any) => {},
-    off: (event: string) => {},
-    emit: (event: string, data: any) => {}
+  const socket: ChatSocket = {
+    on: (_event, _callback) => undefined,
+    off: (_event) => undefined,
+    emit: (_event, _data) => undefined,
   };
 
   useEffect(() => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     if (userData.userId) {
-      setLoggedInUser({ _id: userData.userId, name: userData.fullName || userData.email || "User" });
+      setLoggedInUser({ _id: userData.userId, name: userData.fullName || userData.email || "User", role: userData.role });
       setIsAuth(true);
     } else {
       router.push("/login");
@@ -80,22 +130,57 @@ const ChatApp = () => {
   }, [searchParams, isAuth, loading]);
 
   useEffect(() => {
-    console.log("Chat page state:", { isAuth, loading, selectedUser, chatUser, creatingChat });
-  }, [isAuth, loading, selectedUser, chatUser, creatingChat]);
-
-  useEffect(() => {
     if (isAuth && !loading) {
       loadChats();
     }
   }, [isAuth, loading]);
 
+  useEffect(() => {
+    if (!isAuth || !loggedInUser) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        await secureJsonPost("/api/users/presence", {});
+      } catch (error) {
+        console.error("Presence heartbeat failed:", error);
+      }
+    };
+
+    const loadOnlineUsers = async () => {
+      try {
+        const resp = await fetch("/api/users/presence");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        setOnlineUsers(data.onlineUserIds || []);
+      } catch (error) {
+        console.error("Presence fetch failed:", error);
+      }
+    };
+
+    const initializePresence = async () => {
+      await sendHeartbeat();
+      await loadOnlineUsers();
+    };
+
+    initializePresence();
+
+    const heartbeatInterval = window.setInterval(() => {
+      sendHeartbeat();
+      loadOnlineUsers();
+    }, 30000);
+    const onlineUsersInterval = window.setInterval(loadOnlineUsers, 15000);
+
+    return () => {
+      window.clearInterval(heartbeatInterval);
+      window.clearInterval(onlineUsersInterval);
+    };
+  }, [isAuth, loggedInUser]);
+
   const createChatWithLawyer = async (lawyer: User) => {
     if (!loggedInUser) return;
     setCreatingChat(true);
     try {
-      console.log("Creating chat with lawyer:", lawyer);
       const response = await secureJsonPost("/api/chats", { otherUserId: lawyer._id });
-      console.log("Chat creation response:", response);
 
       if (!response.ok) {
         const err = await response.json();
@@ -103,20 +188,20 @@ const ChatApp = () => {
       }
 
       const data = await response.json();
-      console.log("Chat created/ retrieved:", data);
+      setMessages(null);
       setSelectedUser(data.chatId || lawyer._id);
       setChatUser(lawyer);
+      await loadChats();
     } catch (e) {
       console.error(e);
       toast.error("Unable to start chat with the selected lawyer.");
-      setSelectedUser(lawyer._id);
-      setChatUser(lawyer);
+      setSelectedUser(null);
     } finally {
       setCreatingChat(false);
     }
   };
 
-  const loadMessages = async (chatId: string) => {
+  const loadMessages = async (chatId: string, silent = false) => {
     if (!loggedInUser) return;
     try {
       const resp = await fetch(`/api/chats/${chatId}/messages`);
@@ -125,7 +210,7 @@ const ChatApp = () => {
       setMessages(messages);
     } catch (e) {
       console.error(e);
-      toast.error("Could not fetch chat messages.");
+      if (!silent) toast.error("Could not fetch chat messages.");
     }
   };
 
@@ -142,13 +227,41 @@ const ChatApp = () => {
     }
   };
 
-  useEffect(() => {
-    if (selectedUser) {
-      loadMessages(selectedUser);
+  const loadVaultContext = async (chatId: string) => {
+    try {
+      const resp = await fetch(`/api/chats/${chatId}/vault-context`);
+      if (!resp.ok) {
+        setVaultContext(null);
+        return;
+      }
+
+      const data = await resp.json();
+      setVaultContext(data.activeCase || null);
+    } catch (error) {
+      console.error("Could not load vault context:", error);
+      setVaultContext(null);
     }
+  };
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setMessages(null);
+      setVaultContext(null);
+      return;
+    }
+
+    setMessages(null);
+    loadMessages(selectedUser);
+    loadVaultContext(selectedUser);
+
+    const interval = window.setInterval(() => {
+      loadMessages(selectedUser, true);
+    }, 5000);
+
+    return () => window.clearInterval(interval);
   }, [selectedUser]);
 
-  const handleMessageSend = async (e: any, file?: File | null) => {
+  const handleMessageSend = async (e: React.FormEvent<HTMLFormElement>, file?: File | null) => {
     e.preventDefault();
     if (!message.trim() && !file) return;
     if (!selectedUser || !loggedInUser) return;
@@ -164,9 +277,7 @@ const ChatApp = () => {
       if (message.trim()) formData.append("text", message);
       if (file) formData.append("file", file);
 
-      console.log("Sending message with formData:", formData);
       const resp = await secureFormPost(`/api/chats/${selectedUser}/messages`, formData);
-      console.log("Message send response:", resp);
       if (!resp.ok) {
         const err = await resp.json();
         throw new Error(err.error || "Failed to send message");
@@ -178,9 +289,77 @@ const ChatApp = () => {
         return exists ? cur : [...cur, newMsg];
       });
       setMessage("");
-    } catch (err: any) {
+      await loadChats();
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err.message || "Failed to send message");
+      toast.error(err instanceof Error ? err.message : "Failed to send message");
+    }
+  };
+
+  const handleCaseRequestSend = async () => {
+    if (!selectedUser || !loggedInUser) return;
+
+    try {
+      const resp = await secureJsonPost(`/api/chats/${selectedUser}/case-request`, {});
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || "Failed to send case request");
+      }
+
+      const { message: newMsg } = await resp.json();
+      setMessages(prev => {
+        const cur = prev || [];
+        const exists = cur.some(m => m._id === newMsg._id);
+        return exists ? cur : [...cur, newMsg];
+      });
+      await loadChats();
+      toast.success("Case request sent to lawyer.");
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to send case request");
+    }
+  };
+
+  const handleCaseRequestAction = async (messageId: string, action: "accept" | "reject") => {
+    try {
+      const resp = await secureJsonPost(`/api/case-requests/${messageId}`, { action });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || `Failed to ${action} case request`);
+      }
+
+      const { message: updatedMessage } = await resp.json();
+      setMessages(prev => (prev || []).map(msg => msg._id === updatedMessage._id ? updatedMessage : msg));
+      await loadChats();
+
+      if (action === "accept") {
+        toast.success("Case request accepted. Complete the filing form.");
+        router.push(`/cases/new?requestId=${messageId}`);
+      } else {
+        toast.success("Case request rejected.");
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : `Failed to ${action} case request`);
+    }
+  };
+
+  const handleAddMediaToVault = async (messageId: string) => {
+    if (!selectedUser) return;
+
+    try {
+      const resp = await secureJsonPost(`/api/chats/${selectedUser}/messages/${messageId}/vault`, {});
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || "Failed to add media to vault");
+      }
+
+      setMessages(prev => (prev || []).map(msg => msg._id === data.message._id ? data.message : msg));
+      toast.success(`Media added to vault for ${data.caseId}.`);
+      await loadVaultContext(selectedUser);
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to add media to vault");
     }
   };
 
@@ -196,7 +375,8 @@ const ChatApp = () => {
   };
 
   useEffect(() => {
-    socket?.on("newMessage", (msg: any) => {
+    socket?.on("newMessage", (payload) => {
+      const msg = payload as Message;
       if (msg.chatId === selectedUser) {
         setMessages(prev => {
           const cur = prev || [];
@@ -206,10 +386,12 @@ const ChatApp = () => {
         setIsTyping(false);
       }
     });
-    socket?.on("userTyping", (data: any) => {
+    socket?.on("userTyping", (payload) => {
+      const data = payload as TypingPayload;
       if (data.chatId === selectedUser && data.userId !== loggedInUser?._id) setIsTyping(true);
     });
-    socket?.on("userStoppedTyping", (data: any) => {
+    socket?.on("userStoppedTyping", (payload) => {
+      const data = payload as TypingPayload;
       if (data.chatId === selectedUser && data.userId !== loggedInUser?._id) setIsTyping(false);
     });
     return () => {
@@ -237,7 +419,11 @@ const ChatApp = () => {
         loggedInUser={loggedInUser || { _id: "", name: "User" }}
         chats={chats}
         selectedUser={selectedUser}
-        setSelectedUser={setSelectedUser}
+        onSelectChat={(chatId, user) => {
+          setMessages(null);
+          setSelectedUser(chatId);
+          setChatUser(user);
+        }}
         handleLogout={() => {
           localStorage.removeItem('user');
           router.push("/login");
@@ -258,6 +444,9 @@ const ChatApp = () => {
           selectedUser={selectedUser}
           messages={messages}
           loggedInUser={loggedInUser || { _id: "", name: "User" }}
+          onCaseRequestAction={handleCaseRequestAction}
+          activeVaultCase={vaultContext}
+          onAddMediaToVault={handleAddMediaToVault}
         />
         {/* Input area – only shown once a chat is active */}
         {selectedUser && (
@@ -266,6 +455,8 @@ const ChatApp = () => {
             message={message}
             setMessage={handleTyping}
             handleMessageSend={handleMessageSend}
+            canSendCaseRequest={loggedInUser?.role === "client"}
+            handleCaseRequestSend={handleCaseRequestSend}
           />
         )}
       </div>
@@ -273,4 +464,10 @@ const ChatApp = () => {
   );
 };
 
-export default ChatApp;
+export default function ChatApp() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <ChatAppContent />
+    </Suspense>
+  );
+}

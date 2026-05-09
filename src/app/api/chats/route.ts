@@ -1,20 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getAuthUser } from "@/lib/auth";
-import { fetchUserById, fetchUsersByIds } from "@/lib/fetchUser";
+import { fetchUsersByIds } from "@/lib/fetchUser";
 import { ApiResponse } from "@/lib/apiResponse";
 import { connectDB } from "@/app/lib/db";
 import { Chat } from "@/models/Chat";
 import { Messages } from "@/models/Messages";
+import Counter from "@/models/Counter";
+
+async function generateChatId(): Promise<string> {
+  const counter = await Counter.findByIdAndUpdate(
+    { _id: "CHAT" },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  return `CH${counter.seq.toString().padStart(6, "0")}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
 
-    let user = getAuthUser(req);
-    if (!user) {
-      console.warn("No auth user detected – using dev placeholder user.");
-      user = { _id: "devUser", userId: "devUser", email: "dev@example.com" } as any;
-    }
+    const user = getAuthUser(req);
+    if (!user) return ApiResponse.unauthorized();
 
     const body = await req.json();
     const { otherUserId } = body;
@@ -23,7 +31,7 @@ export async function POST(req: NextRequest) {
       return ApiResponse.badRequest("Other userId is required");
     }
 
-    const userId = (user as any).userId || (user as any)._id;
+    const userId = user.userId;
 
     const existingChat = await Chat.findOne({
       users: { $all: [userId, otherUserId], $size: 2 },
@@ -37,6 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     const newChat = await Chat.create({
+      chatId: await generateChatId(),
       users: [userId, otherUserId],
     });
 
@@ -63,7 +72,7 @@ export async function GET(req: NextRequest) {
 
     const otherUserIds = chats
       .map((chat) =>
-        chat.users.find((id: any) => id.toString() !== userId)?.toString()
+        chat.users.find((id: string) => id.toString() !== userId)?.toString()
       )
       .filter(Boolean) as string[];
 
@@ -72,7 +81,7 @@ export async function GET(req: NextRequest) {
     const chatWithUserData = await Promise.all(
       chats.map(async (chat) => {
         const otherUserId = chat.users
-          .find((id: any) => id.toString() !== userId)
+          .find((id: string) => id.toString() !== userId)
           ?.toString();
 
         const unseenCount = await Messages.countDocuments({
@@ -85,12 +94,6 @@ export async function GET(req: NextRequest) {
           ? userMap.get(otherUserId) ?? { _id: otherUserId, name: "Unknown User" }
           : { _id: otherUserId, name: "Unknown User" };
         
-        // Debug logging
-        console.log('otherUserId:', otherUserId);
-        console.log('userMap size:', userMap.size);
-        console.log('userMap keys:', Array.from(userMap.keys()));
-        console.log('userData:', userData);
-
         return {
           user: userData,
           chat: {

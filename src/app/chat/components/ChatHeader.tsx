@@ -1,6 +1,10 @@
-import { User } from "@/context/AppContext";
 import { Menu, UserCircle } from "lucide-react";
 import React from "react";
+
+interface User {
+  _id: string;
+  name: string;
+}
 
 interface ChatHeaderProps {
   user: User | null;

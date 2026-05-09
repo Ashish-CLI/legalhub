@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const ApiResponse = {
-  success: (data: any, status = 200) =>
+  success: (data: unknown, status = 200) =>
     NextResponse.json(data, { status }),
 
   error: (message: string, status = 500) =>
@@ -10,7 +10,7 @@ export const ApiResponse = {
   unauthorized: () =>
     NextResponse.json({ error: "Authentication required." }, { status: 401 }),
 
-  forbidden: () =>
+  forbidden: (p0?: string) =>
     NextResponse.json({ error: "Access denied." }, { status: 403 }),
 
   notFound: (resource = "Resource") =>

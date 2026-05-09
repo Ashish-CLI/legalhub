@@ -5,6 +5,13 @@ export interface UserData {
   avatar?: string;
 }
 
+interface UserRecord {
+  userId: string;
+  fullName: string;
+  email?: string;
+  profileImage?: string;
+}
+
 export async function fetchUserById(
   userId: string
 ): Promise<UserData | null> {
@@ -44,7 +51,7 @@ export async function fetchUsersByIds(
     const users = await User.find({ userId: { $in: userIds } });
     
     const userMap = new Map<string, UserData>();
-    users.forEach((user: any) => {
+    users.forEach((user: UserRecord) => {
       userMap.set(user.userId, {
         _id: user.userId,
         name: user.fullName,

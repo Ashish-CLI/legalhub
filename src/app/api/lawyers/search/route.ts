@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 
+interface LawyerSearchQuery {
+  role: string;
+  verificationStatus: string;
+  fullName?: {
+    $regex: string;
+    $options: string;
+  };
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const name = searchParams.get('name') || '';
@@ -9,7 +18,7 @@ export async function GET(request: Request) {
   try {
     await dbConnect();
 
-    const query: any = {
+    const query: LawyerSearchQuery = {
       role: 'lawyer',
       verificationStatus: 'accepted'
     };

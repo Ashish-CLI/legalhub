@@ -19,7 +19,7 @@ function getMailer(): Transporter {
 interface SendOtpOptions {
   to: string;
   otp: string;
-  purpose?: 'registration' | 'password-reset';
+  purpose?: 'registration' | 'password-reset' | 'vault-access';
 }
 
 export async function sendOtp({ to, otp, purpose = 'registration' }: SendOtpOptions): Promise<void> {

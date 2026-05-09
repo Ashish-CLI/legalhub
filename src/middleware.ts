@@ -2,10 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const PROTECTED_ROUTES = [
+  '/admin',
   '/dashboard',
+  '/judge',
+  '/api/dashboard',
+  '/api/judge',
+  '/profile',
+  '/cases',
   '/api/cases',
+  '/api/case-requests',
+  '/api/profile',
   '/api/users',
   '/api/admin',
+  '/api/audit-logs',
   '/api/chats',
 ];
 
@@ -63,9 +72,13 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  const contentType = req.headers.get('content-type') || '';
+
   if (
     pathname.startsWith('/api/') &&
-    !pathname.includes('/register') && 
+    !pathname.includes('/register') &&
+    !pathname.startsWith('/api/cases') &&
+    !contentType.toLowerCase().startsWith('multipart/form-data') &&
     ['POST', 'PUT', 'PATCH'].includes(method)
   ) {
     const contentLength = parseInt(req.headers.get('content-length') || '0', 10);
@@ -101,10 +114,29 @@ export async function middleware(req: NextRequest) {
     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
     const { payload } = await jwtVerify(token, secret);
 
-    const response = NextResponse.next();
-    response.headers.set('x-user-id', (payload.userId as string) || '');
-    response.headers.set('x-user-email', (payload.email as string) || '');
-    response.headers.set('x-user-role', (payload.role as string) || '');
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set('x-user-id', (payload.userId as string) || '');
+    requestHeaders.set('x-user-email', (payload.email as string) || '');
+    requestHeaders.set('x-user-role', (payload.role as string) || '');
+
+    if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin') || pathname.startsWith('/api/audit-logs')) {
+      if (payload.role !== 'admin') {
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            { error: 'Access denied.' },
+            { status: 403 }
+          );
+        }
+
+        return NextResponse.redirect(new URL('/dashboard', req.url));
+      }
+    }
+
+    const response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
 
     return response;
   } catch {

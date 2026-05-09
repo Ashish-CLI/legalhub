@@ -17,6 +17,7 @@ export interface IUser extends Document {
   profileImage?: string;
   verificationStatus: 'pending' | 'accepted' | 'rejected';
   caseCount?: number;
+  lastSeen?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,6 +92,11 @@ const UserSchema: Schema<IUser> = new Schema({
     type: String,
     required: false,
     default: '/default.jpg'
+  },
+  lastSeen: {
+    type: Date,
+    required: false,
+    index: true
   }
 }, { timestamps: true });
 

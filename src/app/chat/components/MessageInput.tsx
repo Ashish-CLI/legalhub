@@ -1,11 +1,13 @@
-import { Loader2, Paperclip, Send, X, File as FileIcon } from "lucide-react";
+import { BriefcaseBusiness, Loader2, Paperclip, Send, X, File as FileIcon } from "lucide-react";
 import React, { useState } from "react";
 
 interface MessageInputProps {
   selectedUser: string | null;
   message: string;
   setMessage: (message: string) => void;
-  handleMessageSend: (e: any, file?: File | null) => void;
+  handleMessageSend: (e: React.FormEvent<HTMLFormElement>, file?: File | null) => void;
+  canSendCaseRequest?: boolean;
+  handleCaseRequestSend?: () => void;
 }
 
 const MessageInput = ({
@@ -13,11 +15,13 @@ const MessageInput = ({
   message,
   setMessage,
   handleMessageSend,
+  canSendCaseRequest = false,
+  handleCaseRequestSend,
 }: MessageInputProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!message.trim() && !file) return;
 
@@ -80,6 +84,18 @@ const MessageInput = ({
       {file && getFilePreview()}
 
       <div className="flex items-center gap-2">
+        {canSendCaseRequest && (
+          <button
+            type="button"
+            onClick={handleCaseRequestSend}
+            className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/30 rounded-lg px-3 py-2 transition-colors flex items-center gap-2"
+            aria-label="Send case request"
+          >
+            <BriefcaseBusiness size={18} />
+            <span className="hidden md:inline text-sm font-medium">Case Request</span>
+          </button>
+        )}
+
         <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-2 transition-colors" aria-label="Attach file">
           <Paperclip size={18} className="text-gray-300" />
           <input

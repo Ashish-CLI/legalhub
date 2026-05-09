@@ -31,10 +31,7 @@ export default function VerificationRequestsPage() {
       return documentType === 'application/pdf';
     }
     
-    // Fallback to URL-based detection
     if (documentUrl.includes('.pdf')) return true;
-    
-    // For Cloudinary URLs, check for PDF indicators
     if (documentUrl.includes('cloudinary') && documentUrl.includes('format=pdf')) {
       return true;
     }
@@ -126,6 +123,9 @@ export default function VerificationRequestsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
           </svg>
           Back to Admin Dashboard
+        </Link>
+        <Link href="/admin/case-requests" className="ml-4 inline-flex items-center text-amber-700 hover:text-amber-900 mb-4 font-semibold">
+          Review Case Requests
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">User Verification Requests</h1>
         <p className="text-gray-600">Review and verify new user registrations</p>

@@ -3,7 +3,13 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-export default function Header({ user }: { user: any }) {
+interface HeaderUser {
+  fullName?: string;
+  email?: string;
+  role?: string;
+}
+
+export default function Header({ user }: { user: HeaderUser }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const router = useRouter()
 

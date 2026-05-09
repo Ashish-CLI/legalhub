@@ -1,7 +1,6 @@
 import {
   CornerDownRight,
   CornerUpLeft,
-  Divide,
   LogOut,
   MessageCircle,
   Plus,
@@ -13,6 +12,7 @@ import {
 interface User {
   _id: string;
   name: string;
+  role?: string;
 }
 import Link from "next/link";
 import React, { useState } from "react";
@@ -24,12 +24,24 @@ interface ChatSidebarProps {
   setShowAllUsers: (show: boolean | ((prev: boolean) => boolean)) => void;
   users: User[] | null;
   loggedInUser: User | null;
-  chats: any[] | null;
+  chats: ChatListItem[] | null;
   selectedUser: string | null;
-  setSelectedUser: (userId: string | null) => void;
+  onSelectChat: (chatId: string, user: User) => void;
   handleLogout: () => void;
   createChat: (user: User) => void;
   onlineUsers: string[];
+}
+
+interface ChatListItem {
+  user: User;
+  chat: {
+    _id: string;
+    latestMessage?: {
+      text: string;
+      sender: string;
+    } | null;
+    unseenCount?: number;
+  };
 }
 
 const ChatSidebar = ({
@@ -41,7 +53,7 @@ const ChatSidebar = ({
   loggedInUser,
   chats,
   selectedUser,
-  setSelectedUser,
+  onSelectChat,
   handleLogout,
   createChat,
   onlineUsers,
@@ -158,7 +170,7 @@ const ChatSidebar = ({
                 <button
                   key={chat.chat._id}
                   onClick={() => {
-                    setSelectedUser(chat.chat._id);
+                    onSelectChat(chat.chat._id, chat.user);
                     setSidebarOpen(false);
                   }}
                   className={`w-full text-left p-4 rounded-lg transition-colors ${

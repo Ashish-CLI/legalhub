@@ -1,6 +1,7 @@
-import mongoose, { Document, Schema, Types } from "mongoose";
+import mongoose, { Document, Schema } from "mongoose";
 
 export interface IChat extends Document {
+  chatId: string;
   users: string[];
   latestMessage: {
     text: string;
@@ -13,6 +14,12 @@ export interface IChat extends Document {
 
 const schema: Schema<IChat> = new Schema(
   {
+    chatId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
     users: [{ type: String, ref: "User", required: true }],
     latestMessage: {
       text: String,

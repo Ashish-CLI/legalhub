@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 import Counter from '@/models/Counter';
+import { logUserLogin } from '@/lib/audit';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
@@ -96,7 +97,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure userId is set for existing users
     if (!user.userId) {
       const prefixes: Record<string, string> = {
         client: 'C',
@@ -127,7 +127,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Successful password — clear rate limits for this email
     clearRateLimit(`login:email:${email}`);
 
     if (user.verificationStatus === 'pending') {
@@ -175,6 +174,13 @@ export async function POST(req: NextRequest) {
       maxAge: 30 * 60,
       path: '/',
     });
+
+    // Log successful login event
+    try {
+      await logUserLogin(user.userId, user.role);
+    } catch (auditError) {
+      console.error('Failed to create audit log for login:', auditError);
+    }
 
     return response;
 

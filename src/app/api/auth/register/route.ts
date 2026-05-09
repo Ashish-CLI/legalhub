@@ -4,8 +4,13 @@ import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 import Otp from '@/models/Otp';
 import cloudinary from '@/lib/cloudinary';
+import { logUserRegistration } from '@/lib/audit';
 
 const MAX_REQUEST_SIZE = 12 * 1024 * 1024;
+const MAX_FAILED_PER_EMAIL = 5;
+const MAX_FAILED_PER_PHONE = 5;
+const MAX_FAILED_PER_IP = 20;
+const LOCKOUT_WINDOW = 15 * 60 * 1000;
 
 const schema = z.object({
   fullName: z.string().min(2, 'Full name must be at least 2 characters'),
@@ -20,6 +25,29 @@ const schema = z.object({
     .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
   role: z.enum(['client', 'lawyer', 'judge', 'admin']),
 });
+
+const registerAttempts = new Map<string, { count: number; firstAttempt: number }>();
+
+function checkRateLimit(key: string, max: number): { blocked: boolean; remaining: number } {
+  const now = Date.now();
+  const record = registerAttempts.get(key);
+
+  if (!record || now - record.firstAttempt > LOCKOUT_WINDOW) {
+    registerAttempts.set(key, { count: 1, firstAttempt: now });
+    return { blocked: false, remaining: max - 1 };
+  }
+
+  record.count += 1;
+  if (record.count > max) {
+    return { blocked: true, remaining: 0 };
+  }
+
+  return { blocked: false, remaining: max - record.count };
+}
+
+function clearRateLimit(key: string) {
+  registerAttempts.delete(key);
+}
 
 function validateFileMagicBytes(buffer: Buffer): { valid: boolean; detectedType: string } {
   // PDF:
@@ -81,6 +109,10 @@ async function uploadFile(file: File, folder: string): Promise<{url: string, typ
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('x-real-ip')
+      || 'unknown';
+
     const contentLength = parseInt(req.headers.get('content-length') || '0', 10);
     if (contentLength > MAX_REQUEST_SIZE) {
       return NextResponse.json(
@@ -111,6 +143,32 @@ export async function POST(req: NextRequest) {
     }
 
     const { fullName, email, phoneNumber, address, password, role } = parsed.data;
+
+    const emailCheck = checkRateLimit(`register:email:${email}`, MAX_FAILED_PER_EMAIL);
+    if (emailCheck.blocked) {
+      return NextResponse.json(
+        { error: 'Too many registration attempts for this email. Please try again after 15 minutes.' },
+        { status: 429 }
+      );
+    }
+
+    const phoneCheck = checkRateLimit(`register:phone:${phoneNumber}`, MAX_FAILED_PER_PHONE);
+    if (phoneCheck.blocked) {
+      return NextResponse.json(
+        { error: 'Too many registration attempts for this phone number. Please try again after 15 minutes.' },
+        { status: 429 }
+      );
+    }
+
+    if (ip !== 'unknown') {
+      const ipCheck = checkRateLimit(`register:ip:${ip}`, MAX_FAILED_PER_IP);
+      if (ipCheck.blocked) {
+        return NextResponse.json(
+          { error: 'Too many registration attempts from this IP. Please try again later.' },
+          { status: 429 }
+        );
+      }
+    }
 
     const existing = await User.findOne({
       $or: [{ email }, { phoneNumber }]
@@ -199,7 +257,20 @@ export async function POST(req: NextRequest) {
 
     await user.save();
 
+    // Log registration event
+    try {
+      await logUserRegistration(user.userId, user.role);
+    } catch (auditError) {
+      console.error('Failed to create audit log for registration:', auditError);
+    }
+
     await Otp.deleteMany({ email });
+
+    clearRateLimit(`register:email:${email}`);
+    clearRateLimit(`register:phone:${phoneNumber}`);
+    if (ip !== 'unknown') {
+      clearRateLimit(`register:ip:${ip}`);
+    }
 
     return NextResponse.json(
       {

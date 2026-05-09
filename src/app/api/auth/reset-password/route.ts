@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 import Otp from '@/models/Otp';
+import { logPasswordChange, logPasswordReset } from '@/lib/audit';
 
 const MAX_ATTEMPTS = 5;
 
@@ -76,7 +77,9 @@ export async function POST(req: NextRequest) {
     }
 
     user.password = newPassword;
-    await user.save();
+await user.save();
+await logPasswordChange(user.userId, user.role);
+await logPasswordReset(user.userId, user.role);
 
     await Otp.deleteMany({ email });
 

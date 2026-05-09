@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
+import { logUserVerification } from '@/lib/audit';
 
 export async function PUT(
   req: NextRequest,
@@ -10,9 +11,8 @@ export async function PUT(
     await dbConnect();
     
     const { userId } = await params;
-    const { action } = await req.json(); // action: 'accept' or 'reject'
+    const { action } = await req.json();
     
-    // Validate action
     if (!action || !['accept', 'reject'].includes(action)) {
       return NextResponse.json(
         { error: 'Invalid action. Must be "accept" or "reject"' },
@@ -20,7 +20,6 @@ export async function PUT(
       );
     }
     
-    // Find user by userId
     const user = await User.findOne({ userId });
     
     if (!user) {
@@ -30,7 +29,6 @@ export async function PUT(
       );
     }
     
-    // Check if user is already verified
     if (user.verificationStatus !== 'pending') {
       return NextResponse.json(
         { error: `User verification status is already ${user.verificationStatus}` },
@@ -38,12 +36,17 @@ export async function PUT(
       );
     }
     
-    // Update verification status
     const newStatus = action === 'accept' ? 'accepted' : 'rejected';
     user.verificationStatus = newStatus;
     
-    // Save the updated user
     await user.save();
+    
+    // Log verification action
+    try {
+      await logUserVerification(userId, newStatus, req.headers.get('x-user-id') || 'system');
+    } catch (auditError) {
+      console.error('Failed to create audit log for verification:', auditError);
+    }
     
     return NextResponse.json({
       success: true,
