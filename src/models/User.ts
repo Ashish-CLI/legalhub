@@ -10,12 +10,13 @@ export interface IUser extends Document {
   password: string;
   address: string;
   role: 'client' | 'lawyer' | 'judge' | 'admin';
-  idDocument: string;
+  idDocument?: string;
   idDocumentType?: string;
   professionalDocument?: string;
   professionalDocumentType?: string;
   profileImage?: string;
-  verificationStatus: 'pending' | 'accepted' | 'rejected';
+  verificationStatus: 'pending' | 'analyzing' | 'accepted' | 'rejected';
+  analysisFileIds?: string[]; // Track files being analyzed
   caseCount?: number;
   lastSeen?: Date;
   createdAt: Date;
@@ -62,7 +63,7 @@ const UserSchema: Schema<IUser> = new Schema({
   },
   idDocument: {
     type: String,
-    required: true
+    required: false
   },
   idDocumentType: {
     type: String,
@@ -80,9 +81,13 @@ const UserSchema: Schema<IUser> = new Schema({
   },
   verificationStatus: {
     type: String,
-    enum: ['pending', 'accepted', 'rejected'],
+    enum: ['pending', 'analyzing', 'accepted', 'rejected'],
     default: 'pending'
   },
+  analysisFileIds: [{
+    type: String,
+    ref: 'FileAnalysis'
+  }],
   caseCount: {
     type: Number,
     min: 0,
@@ -121,7 +126,7 @@ UserSchema.pre('save', async function () {
     const counter = await Counter.findByIdAndUpdate(
       { _id: prefix },
       { $inc: { seq: 1 } },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
 
     const num = counter?.seq || 1;
@@ -133,6 +138,10 @@ UserSchema.pre('save', async function () {
     this.password = await bcrypt.hash(this.password, 12);
   }
 });
+
+if (mongoose.models.User) {
+  delete mongoose.models.User;
+}
 
 const User: Model<IUser> = mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
 

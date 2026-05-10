@@ -14,5 +14,42 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  cuckoo:
+    image: blacktop/cuckoo:latest
+    container_name: cuckoo-sandbox
+    restart: unless-stopped
+    ports:
+      - "8090:8090"  # Cuckoo API endpoint
+      - "8000:8000"  # Cuckoo Web UI (optional, for monitoring)
+    environment:
+      # Cuckoo configuration
+      CUCKOO_POSTGRES: "False"
+      # Memory/CPU limits for VMs
+      MEMORY: "2048"
+    volumes:
+      - cuckoo-data:/home/cuckoo
+    command: >
+      sh -c "
+        if [ ! -d /home/cuckoo/.cuckoo ]; then
+          echo 'Initializing Cuckoo...' &&
+          cuckoo init &&
+          echo 'Starting Cuckoo API...' &&
+          cuckoo api --host 0.0.0.0 --port 8090;
+        else
+          echo 'Cuckoo already initialized, starting API...' &&
+          cuckoo api --host 0.0.0.0 --port 8090;
+        fi
+      "
+      - cuckoo-analysis:/home/cuckoo/storage
+    # Temporarily disable health check to see if container starts
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8090/cuckoo/status"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 120s
+
 volumes:
   mongo-data:
+  cuckoo-data:
+  cuckoo-analysis:

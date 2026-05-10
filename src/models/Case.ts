@@ -9,7 +9,8 @@ export interface ICase extends Document {
     caseFile: string ;
     judgeId?: string ;
     vaultId?: Types.ObjectId ;
-    status: 'pending' | 'active' | 'closed' | 'rejected';
+    status: 'pending' | 'active' | 'closed' | 'rejected' | 'analyzing';
+    analysisFileId?: string;
     openDate: Date ;
     closeDate?: Date ;
     updatedDate: Date ;
@@ -63,8 +64,14 @@ const CaseSchema: Schema<ICase> = new Schema({
     },
     status: {
         type : String,
-        enum : ['pending', 'active' , 'closed', 'rejected'],
+        enum : ['pending', 'active' , 'closed', 'rejected', 'analyzing'],
         default : 'pending'
+    },
+    analysisFileId: {
+        type: String,
+        ref: 'FileAnalysis',
+        index: true,
+        required: false
     },
     openDate: {
         type: Date,

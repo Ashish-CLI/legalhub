@@ -10,6 +10,11 @@ import Vault from "@/models/Vault";
 import User from "@/models/User";
 import { logCaseCreation } from "@/lib/audit";
 import { hasJudgeGrant } from "@/lib/vault-access";
+import FileAnalysis from "@/models/FileAnalysis";
+import { fileAnalysisQueue } from "@/lib/fileAnalysis";
+import fs from "fs/promises";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
 
 const MAX_CASE_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_REQUEST_SIZE = 22 * 1024 * 1024;
@@ -72,6 +77,27 @@ async function uploadCaseFile(file: File): Promise<string> {
   });
 }
 
+/**
+ * Save file locally for analysis
+ * Returns the file path where the file is saved
+ */
+async function saveFileLocally(file: File, fileId: string): Promise<string> {
+  const uploadDir = process.env.UPLOAD_DIR || "./uploads";
+  
+  // Create uploads directory if it doesn't exist
+  await fs.mkdir(uploadDir, { recursive: true });
+  
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  
+  // Determine file extension
+  const ext = path.extname(file.name) || ".pdf";
+  const filePath = path.join(uploadDir, `${fileId}${ext}`);
+  
+  await fs.writeFile(filePath, buffer);
+  return filePath;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
@@ -105,6 +131,13 @@ export async function POST(req: NextRequest) {
       return ApiResponse.badRequest("Case file exceeds the 20MB limit.");
     }
 
+    // Validate PDF by magic bytes
+    const bytes = await caseFile.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    if (!isPdfByMagicBytes(buffer)) {
+      return ApiResponse.badRequest("Case file must be a valid PDF document.");
+    }
+
     const requestMessage = await Messages.findById(requestId);
     if (!requestMessage || requestMessage.messageType !== "case_request" || !requestMessage.caseRequest) {
       return ApiResponse.notFound("Case request");
@@ -119,37 +152,85 @@ export async function POST(req: NextRequest) {
       return ApiResponse.badRequest("This case request has already been filed.");
     }
 
-    const caseFileUrl = await uploadCaseFile(caseFile);
+    // NEW ASYNC FLOW:
+    // 1. Generate IDs
+    const fileId = uuidv4();
     const caseId = await generateCaseId();
 
+    // 2. Save file locally for analysis
+    const filePath = await saveFileLocally(caseFile, fileId);
+    console.log(`[Cases API] File saved locally: ${filePath}`);
+
+    // 3. Create FileAnalysis record in MongoDB
+    const fileAnalysisRecord = await FileAnalysis.create({
+      fileId,
+      originalName: caseFile.name,
+      mimeType: caseFile.type || "application/pdf",
+      size: caseFile.size,
+      uploaderId: user.userId,
+      status: "pending",
+      localPath: filePath,
+      metadata: {
+        caseId,
+        type: "case-file",
+      },
+    });
+
+    // 4. Create Case record with status "analyzing"
     const createdCase = await Case.create({
       caseId,
       title,
       description,
       clientId: requestMessage.caseRequest.clientId,
       lawyerId: requestMessage.caseRequest.lawyerId,
-      caseFile: caseFileUrl,
-      status: "pending",
+      caseFile: "", // Empty until analysis completes
+      status: "analyzing", // Mark as analyzing
+      analysisFileId: fileId, // Track which file is being analyzed
     });
 
+    // 5. Update case request message
     requestMessage.caseRequest.status = "filed";
     requestMessage.caseRequest.caseId = createdCase.caseId;
     requestMessage.caseRequest.filedAt = new Date();
     await requestMessage.save();
 
-    // Log case creation
+    // 6. Enqueue file for analysis
+    const jobId = fileAnalysisQueue.enqueue(
+      fileId,
+      filePath,
+      caseFile.name,
+      caseFile.type || "application/pdf",
+      caseFile.size,
+      user.userId,
+      { caseId, type: "case-file" }
+    );
+
+    console.log(`[Cases API] File analysis job enqueued: jobId=${jobId}, fileId=${fileId}, caseId=${caseId}`);
+
+    // 7. Log case creation (with pending status)
     try {
       await logCaseCreation(
         createdCase.caseId,
         createdCase.clientId,
         createdCase.lawyerId,
-        { caseFile: createdCase.caseFile }
+        { caseFile: "", status: "analyzing", analysisFileId: fileId }
       );
     } catch (auditError) {
       console.error("Failed to create audit log for case creation:", auditError);
     }
 
-    return ApiResponse.success({ case: createdCase, message: requestMessage }, 201);
+    // 8. Return 202 Accepted with uploadId
+    return ApiResponse.success(
+      {
+        case: createdCase,
+        message: requestMessage,
+        uploadId: fileId,
+        jobId,
+        status: "analyzing",
+        statusUrl: `/api/internal/file-analysis/${fileId}`,
+      },
+      202 // HTTP 202 Accepted
+    );
   } catch (error) {
     console.error("POST /api/cases:", error);
     const message = error instanceof Error ? error.message : "Internal Server Error";

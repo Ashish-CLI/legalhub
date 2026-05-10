@@ -62,7 +62,8 @@ export async function middleware(req: NextRequest) {
   if (
     ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) &&
     pathname.startsWith('/api/') &&
-    !pathname.startsWith('/api/auth/csrf-token')
+    !pathname.startsWith('/api/auth/csrf-token') &&
+    !pathname.startsWith('/api/internal/')
   ) {
     if (!verifyCsrf(req)) {
       return NextResponse.json(

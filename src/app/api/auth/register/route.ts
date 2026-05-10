@@ -5,6 +5,11 @@ import User from '@/models/User';
 import Otp from '@/models/Otp';
 import cloudinary from '@/lib/cloudinary';
 import { logUserRegistration } from '@/lib/audit';
+import FileAnalysis from '@/models/FileAnalysis';
+import { fileAnalysisQueue } from '@/lib/fileAnalysis';
+import fs from 'fs/promises';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 const MAX_REQUEST_SIZE = 12 * 1024 * 1024;
 const MAX_FAILED_PER_EMAIL = 5;
@@ -74,37 +79,25 @@ function sanitizeFilename(name: string): string {
     .slice(0, 100);
 }
 
-async function uploadFile(file: File, folder: string): Promise<{url: string, type: string}> {
+/**
+ * Save file locally for analysis
+ * Returns the file path where the file is saved
+ */
+async function saveFileLocally(file: File, fileId: string): Promise<string> {
+  const uploadDir = process.env.UPLOAD_DIR || './uploads';
+
+  // Create uploads directory if it doesn't exist
+  await fs.mkdir(uploadDir, { recursive: true });
+
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  const { valid, detectedType } = validateFileMagicBytes(buffer);
-  if (!valid) {
-    throw new Error('File content does not match an allowed type (PDF or JPEG).');
-  }
+  // Determine file extension
+  const ext = path.extname(file.name) || '.pdf';
+  const filePath = path.join(uploadDir, `${fileId}${ext}`);
 
-  const safeName = sanitizeFilename(file.name);
-
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader.upload_stream(
-      {
-        folder: `legalhub/${folder}`,
-        resource_type: 'auto',
-        public_id: safeName.replace(/\.[^.]+$/, ''),
-        unique_filename: true,
-        overwrite: false,
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-        } else if (result) {
-          resolve({url: result.secure_url, type: detectedType});
-        } else {
-          reject(new Error('Upload failed'));
-        }
-      }
-    ).end(buffer);
-  });
+  await fs.writeFile(filePath, buffer);
+  return filePath;
 }
 
 export async function POST(req: NextRequest) {
@@ -224,40 +217,136 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let idResult: {url: string, type: string};
-    try {
-      idResult = await uploadFile(idDocument, 'id-documents');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
-      return NextResponse.json({ error: `ID Document upload failed: ${msg}` }, { status: 400 });
+    // Validate file content by magic bytes
+    const idBytes = await idDocument.arrayBuffer();
+    const idBuffer = Buffer.from(idBytes);
+    const { valid: idValid, detectedType: idType } = validateFileMagicBytes(idBuffer);
+    if (!idValid) {
+      return NextResponse.json({ error: 'ID Document must be a valid PDF or JPEG.' }, { status: 400 });
     }
 
-    let profResult: {url: string, type: string} | undefined = undefined;
+    let profValid = true;
+    let profType = '';
     if (professionalDocument) {
-      try {
-        profResult = await uploadFile(professionalDocument, 'professional-documents');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload failed';
-        return NextResponse.json({ error: `Professional Document upload failed: ${msg}` }, { status: 400 });
+      const profBytes = await professionalDocument.arrayBuffer();
+      const profBuffer = Buffer.from(profBytes);
+      const profValidation = validateFileMagicBytes(profBuffer);
+      profValid = profValidation.valid;
+      profType = profValidation.detectedType;
+      if (!profValid) {
+        return NextResponse.json({ error: 'Professional Document must be a valid PDF or JPEG.' }, { status: 400 });
       }
     }
 
-    const user = new User({
+    // NEW ASYNC FLOW: Save files locally and enqueue for analysis
+    const idFileId = uuidv4();
+    const idFilePath = await saveFileLocally(idDocument, idFileId);
+    console.log(`[Register API] ID document saved locally: ${idFilePath}`);
+
+    // Create FileAnalysis record for ID document
+    const idAnalysisRecord = await FileAnalysis.create({
+      fileId: idFileId,
+      originalName: idDocument.name,
+      mimeType: idType,
+      size: idDocument.size,
+      uploaderId: 'pending-user', // Will update after user creation
+      status: 'pending',
+      localPath: idFilePath,
+      metadata: {
+        type: 'id-document',
+        userEmail: email,
+        userRole: role,
+      },
+    });
+
+    let profFileId: string | undefined;
+    let profFilePath: string | undefined;
+    let profAnalysisRecord: any;
+
+    if (professionalDocument) {
+      profFileId = uuidv4();
+      profFilePath = await saveFileLocally(professionalDocument, profFileId);
+      console.log(`[Register API] Professional document saved locally: ${profFilePath}`);
+
+      // Create FileAnalysis record for professional document
+      profAnalysisRecord = await FileAnalysis.create({
+        fileId: profFileId,
+        originalName: professionalDocument.name,
+        mimeType: profType,
+        size: professionalDocument.size,
+        uploaderId: 'pending-user',
+        status: 'pending',
+        localPath: profFilePath,
+        metadata: {
+          type: 'professional-document',
+          userEmail: email,
+          userRole: role,
+        },
+      });
+    }
+
+    // Create user with analyzing status
+    const userData: Record<string, unknown> = {
       fullName,
       email,
       phoneNumber,
       address,
       password,
       role,
-      idDocument: idResult.url,
-      idDocumentType: idResult.type,
-      professionalDocument: profResult?.url,
-      professionalDocumentType: profResult?.type,
-    });
+      idDocumentType: idType,
+      professionalDocumentType: profType || undefined,
+      verificationStatus: 'analyzing', // Mark as analyzing documents
+      analysisFileIds: [idFileId, ...(profFileId ? [profFileId] : [])], // Track analysis files
+    };
+
+    if (profFileId) {
+      userData.professionalDocument = '';
+    }
+
+    const user = new User(userData);
 
     await user.save();
 
-    // Log registration event
+    // Update uploader IDs in analysis records
+    await FileAnalysis.findByIdAndUpdate(idAnalysisRecord._id, {
+      uploaderId: user.userId,
+      'metadata.userId': user.userId,
+    });
+
+    if (profAnalysisRecord) {
+      await FileAnalysis.findByIdAndUpdate(profAnalysisRecord._id, {
+        uploaderId: user.userId,
+        'metadata.userId': user.userId,
+      });
+    }
+
+    // Enqueue files for analysis
+    const idJobId = fileAnalysisQueue.enqueue(
+      idFileId,
+      idFilePath,
+      idDocument.name,
+      idType,
+      idDocument.size,
+      user.userId,
+      { type: 'id-document', userId: user.userId, userEmail: email }
+    );
+
+    let profJobId: string | undefined;
+    if (professionalDocument && profFileId && profFilePath) {
+      profJobId = fileAnalysisQueue.enqueue(
+        profFileId,
+        profFilePath,
+        professionalDocument.name,
+        profType,
+        professionalDocument.size,
+        user.userId,
+        { type: 'professional-document', userId: user.userId, userEmail: email }
+      );
+    }
+
+    console.log(`[Register API] Files enqueued for analysis: id=${idJobId}, prof=${profJobId}`);
+
+    // Log registration event (with pending status)
     try {
       await logUserRegistration(user.userId, user.role);
     } catch (auditError) {
@@ -272,17 +361,32 @@ export async function POST(req: NextRequest) {
       clearRateLimit(`register:ip:${ip}`);
     }
 
+    // Return 202 Accepted with analysis status URLs
     return NextResponse.json(
       {
-        message: 'Registration successful! Your account is pending admin verification.',
+        message: 'Registration successful! Documents are being analyzed for security. You will be notified once verification is complete.',
         user: {
           userId: user.userId,
           fullName: user.fullName,
           role: user.role,
-          verificationStatus: user.verificationStatus
-        }
+          verificationStatus: user.verificationStatus,
+        },
+        analysisStatus: {
+          idDocument: {
+            fileId: idFileId,
+            jobId: idJobId,
+            statusUrl: `/api/internal/file-analysis/${idFileId}`,
+          },
+          ...(profFileId && profJobId ? {
+            professionalDocument: {
+              fileId: profFileId,
+              jobId: profJobId,
+              statusUrl: `/api/internal/file-analysis/${profFileId}`,
+            }
+          } : {}),
+        },
       },
-      { status: 201 }
+      { status: 202 } // HTTP 202 Accepted
     );
 
   } catch (error: unknown) {

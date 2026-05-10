@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "wait:db": "wait-on tcp:27017 --timeout 30000",
+    "dev": "npm run docker:up && npm run wait:db && next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "npm run docker:up && npm run wait:db && next start",
+    "stop": "npm run docker:down",
     "lint": "eslint",
-    "create-admin": "node scripts/create-admin.mjs",
+    "create-admin": "ts-node scripts/create-admin.ts",
     "add-dummy-lawyers": "npx ts-node --project scripts/tsconfig.json scripts/add-dummy-lawyers.ts"
   },
   "dependencies": {
@@ -27,6 +31,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hot-toast": "^2.6.0",
+    "uuid": "^14.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -37,10 +42,12 @@
     "@types/nodemailer": "^7.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.0.5"
   }
 }

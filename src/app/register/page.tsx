@@ -70,6 +70,11 @@ export default function RegisterPage() {
     userId: string;
     fullName: string;
     role: string;
+    verificationStatus: string;
+  } | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<{
+    idDocument: { fileId: string; jobId: string; statusUrl: string };
+    professionalDocument?: { fileId: string; jobId: string; statusUrl: string };
   } | null>(null);
   const idDocRef = useRef<HTMLInputElement>(null);
   const profDocRef = useRef<HTMLInputElement>(null);
@@ -234,8 +239,16 @@ export default function RegisterPage() {
         } else setMessage(data.error || "Failed");
         return;
       }
-      setSuccess(true);
-      setSuccessData(data.user);
+      
+      // Handle 202 Accepted response with analysis status
+      if (res.status === 202) {
+        setSuccess(true);
+        setSuccessData(data.user);
+        setAnalysisStatus(data.analysisStatus);
+      } else {
+        setSuccess(true);
+        setSuccessData(data.user);
+      }
     } catch {
       setMessage("Network error");
     } finally {
@@ -347,12 +360,18 @@ export default function RegisterPage() {
           <h2 className="mb-2 text-2xl font-bold text-white">
             Registration Successful!
           </h2>
-          <p className="mb-6 text-slate-400">Pending admin verification.</p>
+          <p className="mb-6 text-slate-400">
+            {analysisStatus 
+              ? "Your documents are being analyzed for security. You will be notified once verification is complete."
+              : "Pending admin verification."
+            }
+          </p>
           <div className="mb-6 space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-5 text-left">
             {[
               { l: "User ID", v: successData.userId },
               { l: "Name", v: successData.fullName },
               { l: "Role", v: successData.role },
+              { l: "Status", v: successData.verificationStatus },
             ].map((i) => (
               <div key={i.l} className="flex justify-between">
                 <span className="text-sm text-slate-400">{i.l}</span>
@@ -361,6 +380,28 @@ export default function RegisterPage() {
                 </span>
               </div>
             ))}
+            {analysisStatus && (
+              <>
+                <div className="border-t border-white/[0.06] my-3"></div>
+                <div className="text-sm text-amber-400 font-medium mb-2">Document Analysis Status:</div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-400">ID Document</span>
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
+                      Analyzing...
+                    </span>
+                  </div>
+                  {analysisStatus.professionalDocument && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-slate-400">Professional Document</span>
+                      <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
+                        Analyzing...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
           <Link
             href="/login"
