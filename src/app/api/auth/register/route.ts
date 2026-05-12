@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 const MAX_REQUEST_SIZE = 12 * 1024 * 1024;
 const MAX_FAILED_PER_EMAIL = 5;
 const MAX_FAILED_PER_PHONE = 5;
-const MAX_FAILED_PER_IP = 20;
+const MAX_FAILED_PER_IP = 200;
 const LOCKOUT_WINDOW = 15 * 60 * 1000;
 
 const schema = z.object({
@@ -299,10 +299,7 @@ export async function POST(req: NextRequest) {
       analysisFileIds: [idFileId, ...(profFileId ? [profFileId] : [])], // Track analysis files
     };
 
-    if (profFileId) {
-      userData.professionalDocument = '';
-    }
-
+    // professionalDocument is assigned later after file analysis completes
     const user = new User(userData);
 
     await user.save();

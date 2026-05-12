@@ -72,7 +72,7 @@ const UserSchema: Schema<IUser> = new Schema({
   professionalDocument: {
     type: String,
     required: function (this: IUser) {
-      return ['lawyer', 'judge', 'admin'].includes(this.role);
+      return ['lawyer', 'judge', 'admin'].includes(this.role) && this.verificationStatus !== 'analyzing';
     }
   },
   professionalDocumentType: {

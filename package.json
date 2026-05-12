@@ -11,8 +11,13 @@
     "start": "npm run docker:up && npm run wait:db && next start",
     "stop": "npm run docker:down",
     "lint": "eslint",
+    "test": "jest --verbose --runInBand",
     "create-admin": "ts-node scripts/create-admin.ts",
     "add-dummy-lawyers": "npx ts-node --project scripts/tsconfig.json scripts/add-dummy-lawyers.ts"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 20000
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -45,6 +50,9 @@
     "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "form-data": "^4.0.5",
+    "jest": "^30.4.2",
+    "node-fetch": "^2.7.0",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5",

@@ -1,6 +1,19 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { startWorker } from '@/lib/analysisWorker';
+import { scheduleCleanup } from '@/lib/cleanupJobs';
+
+declare global {
+  var workersStarted: boolean;
+}
+
+if (typeof globalThis !== 'undefined' && !globalThis.workersStarted) {
+  startWorker();    // Process queue every 10s
+  scheduleCleanup(); // Cleanup every 6 hours
+  globalThis.workersStarted = true;
+}
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
